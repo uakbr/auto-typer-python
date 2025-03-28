@@ -1,17 +1,31 @@
 import tkinter as tk
-from tkinter import scrolledtext, messagebox, ttk, colorchooser, filedialog
+from tkinter import scrolledtext, messagebox, ttk, colorchooser, filedialog, simpledialog
 import pyautogui
 import random
 import time
 import threading
-import keyboard
 import json
 import os
 import sys
 from datetime import datetime
-import pystray
 from PIL import Image, ImageDraw
 import math
+
+# Only import keyboard on non-macOS platforms
+MACOS = sys.platform == 'darwin'
+if not MACOS:
+    try:
+        import keyboard
+    except ImportError:
+        keyboard = None
+else:
+    keyboard = None
+
+# Only import pystray for system tray support
+try:
+    import pystray
+except ImportError:
+    pystray = None
 
 class AdvancedTyperApp:
     def __init__(self, root):
@@ -37,6 +51,7 @@ class AdvancedTyperApp:
         self.total_chars = 0
         self.current_text = ""
         self.minimized_to_tray = False
+        self.keyboard_available = keyboard is not None and not MACOS
         
         # Default settings
         self.default_settings = {
@@ -44,13 +59,13 @@ class AdvancedTyperApp:
             "delay_variability": 0.05,  # Random variability to add to base delay
             "word_delay": 0.3,  # Extra delay between words
             "typing_mode": "character",  # 'character' or 'word'
-            "pause_key": "ctrl+shift+p",  # Hotkey to pause/resume typing
-            "emergency_stop_key": "ctrl+shift+x",  # Emergency stop hotkey
+            "pause_key": "f10",  # Hotkey to pause/resume typing (was ctrl+shift+p)
+            "emergency_stop_key": "f11",  # Emergency stop hotkey (was ctrl+shift+x)
             "repeat_count": 1,  # Number of times to repeat typing
             "countdown_seconds": 3,  # Seconds to countdown before typing
             "natural_typing": True,  # Simulate more natural typing patterns
-            "theme": "light",  # UI theme
-            "minimize_to_tray": True,  # Minimize to system tray
+            "theme": "light",  # UI theme (previously "dark")
+            "minimize_to_tray": not MACOS,  # Minimize to system tray (disabled on macOS)
             "confirm_emergency_stop": True,  # Require confirmation for emergency stop
         }
         
@@ -97,6 +112,19 @@ class AdvancedTyperApp:
     
     def setup_system_tray(self):
         """Set up system tray icon if supported"""
+        # Skip system tray on macOS which has issues with pystray
+        if MACOS:
+            print("System tray support disabled on macOS")
+            self.settings["minimize_to_tray"] = False
+            self.save_settings()
+            return
+        
+        if not pystray:
+            print("Pystray module not available, system tray disabled")
+            self.settings["minimize_to_tray"] = False
+            self.save_settings()
+            return
+            
         try:
             self.tray_icon = pystray.Icon("Advanced Typer")
             self.tray_icon.icon = Image.open(self.icon_path)
@@ -129,7 +157,6 @@ class AdvancedTyperApp:
         if hasattr(self, 'tray_icon'):
             self.tray_icon.stop()
         self.root.destroy()
-        sys.exit(0)
     
     def on_close(self):
         """Handle window close event"""
@@ -142,23 +169,53 @@ class AdvancedTyperApp:
             self.root.destroy()
     
     def register_hotkeys(self):
-        """Register global hotkeys"""
+        """Register global hotkeys with improved macOS support"""
+        # Skip hotkey registration on macOS
+        if MACOS:
+            self.keyboard_available = False
+            print("Global hotkeys disabled on macOS")
+            return
+        
+        # Skip if keyboard module not available
+        if not keyboard:
+            self.keyboard_available = False
+            print("Keyboard module not available")
+            return
+        
         try:
-            # Remove any existing hotkeys first
+            # Try to unhook any existing hotkeys
             try:
                 keyboard.unhook_all()
             except:
                 pass
-                
-            # Register hotkeys
+            
+            # Register the hotkeys
             keyboard.add_hotkey(self.settings["emergency_stop_key"], self.emergency_stop)
             keyboard.add_hotkey(self.settings["pause_key"], self.toggle_pause)
             keyboard.add_hotkey('f9', self.start_typing)
             keyboard.add_hotkey('f10', self.toggle_pause)
             keyboard.add_hotkey('f11', self.stop_typing)
+            
+            # Mark keyboard as available
+            self.keyboard_available = True
+            print("Global hotkeys registered successfully")
         except Exception as e:
-            messagebox.showwarning("Hotkey Warning", f"Failed to register some hotkeys: {str(e)}\n\n"
-                                  "The application will still work, but global hotkeys may not function.")
+            # Any error during hotkey registration
+            self.keyboard_available = False
+            messagebox.showwarning(
+                "Hotkey Warning", 
+                f"Failed to register hotkeys: {str(e)}\n\n"
+                "The application will still work, but global hotkeys may not function."
+            )
+        
+        # Update the UI to show keyboard status
+        if not self.keyboard_available:
+            self.update_ui_for_limited_mode()
+    
+    def update_ui_for_limited_mode(self):
+        """Update UI to indicate limited mode without global hotkeys"""
+        # We'll implement this later when creating the UI
+        pass
     
     def apply_theme(self):
         """Apply the selected theme to the application"""
@@ -167,6 +224,7 @@ class AdvancedTyperApp:
             self.bg_color = "#2d2d2d"
             self.fg_color = "#ffffff"
             self.accent_color = "#3498db"
+            self.input_bg_color = "#383838"  # Slightly lighter than background for input areas
             self.root.configure(bg=self.bg_color)
             self.style.configure("TButton", background=self.accent_color, foreground="white")
             self.style.configure("TLabel", background=self.bg_color, foreground=self.fg_color)
@@ -179,6 +237,7 @@ class AdvancedTyperApp:
             self.bg_color = "#f5f5f5"
             self.fg_color = "#000000"
             self.accent_color = "#3498db"
+            self.input_bg_color = "#ffffff"  # White background for input areas
             self.root.configure(bg=self.bg_color)
             self.style.configure("TButton", background=self.accent_color, foreground="black")
             self.style.configure("TLabel", background=self.bg_color, foreground=self.fg_color)
@@ -286,7 +345,7 @@ class AdvancedTyperApp:
         
         text = scrolledtext.ScrolledText(frame, wrap=tk.WORD, height=20, width=60)
         text.insert(tk.END, instructions)
-        text.configure(state=tk.DISABLED, bg=self.bg_color, fg=self.fg_color)
+        text.configure(state=tk.DISABLED, bg=self.input_bg_color, fg=self.fg_color)
         text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         ttk.Button(frame, text="Close", command=dialog.destroy).pack(pady=10)
@@ -688,7 +747,7 @@ class AdvancedTyperApp:
         preview_frame.pack(fill=tk.BOTH, expand=True, pady=10)
         
         preview_text = scrolledtext.ScrolledText(preview_frame, height=5, wrap=tk.WORD,
-                                               bg=self.bg_color, fg=self.fg_color)
+                                               bg=self.input_bg_color, fg=self.fg_color)
         preview_text.pack(fill=tk.BOTH, expand=True)
         
         # Function to update preview
@@ -844,6 +903,26 @@ class AdvancedTyperApp:
         main_frame = ttk.Frame(self.root, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
         
+        # Add a message for limited mode if keyboard module isn't available
+        if not self.keyboard_available:
+            limited_frame = ttk.Frame(main_frame)
+            limited_frame.pack(fill=tk.X, pady=(0, 10))
+            
+            limited_label = ttk.Label(
+                limited_frame, 
+                text="Running in limited mode: Global hotkeys unavailable",
+                foreground="#cc3300",
+                font=("Arial", 10, "bold")
+            )
+            limited_label.pack(side=tk.LEFT)
+            
+            help_button = ttk.Button(
+                limited_frame, 
+                text="Fix This",
+                command=self.show_hotkey_help
+            )
+            help_button.pack(side=tk.RIGHT)
+        
         # Text input section
         input_frame = ttk.LabelFrame(main_frame, text="Text to Type", padding=10)
         input_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
@@ -855,7 +934,7 @@ class AdvancedTyperApp:
         # Text area
         self.text_input = scrolledtext.ScrolledText(
             input_frame, height=10, wrap=tk.WORD, 
-            bg=self.bg_color, fg=self.fg_color,
+            bg=self.input_bg_color, fg=self.fg_color,
             insertbackground=self.fg_color  # Cursor color
         )
         self.text_input.pack(fill=tk.BOTH, expand=True)
@@ -997,7 +1076,7 @@ class AdvancedTyperApp:
         
         self.test_area = scrolledtext.ScrolledText(
             test_frame, height=5, wrap=tk.WORD,
-            bg=self.bg_color, fg=self.fg_color,
+            bg=self.input_bg_color, fg=self.fg_color,
             insertbackground=self.fg_color
         )
         self.test_area.pack(fill=tk.BOTH, expand=True)
@@ -1352,34 +1431,67 @@ class AdvancedTyperApp:
         if self.minimized_to_tray:
             self.show_window()
             messagebox.showinfo("Emergency Stop", "Typing has been stopped", parent=self.root)
-
-# Additional imports for system tray
-try:
-    import pystray
-    from PIL import Image, ImageDraw
-except ImportError:
-    pass
+    
+    def show_hotkey_help(self):
+        """Show help about fixing hotkey permissions"""
+        if MACOS:
+            message = (
+                "Global hotkeys are not supported on macOS in this application.\n\n"
+                "This is due to macOS security restrictions that require special permissions.\n\n"
+                "Please use the buttons in the application interface instead of hotkeys.\n\n"
+                "You can also use the function keys (F9, F10, F11) if your app has focus."
+            )
+        else:
+            message = (
+                "To enable global hotkeys:\n\n"
+                "1. Ensure the keyboard module is properly installed\n"
+                "2. Try running the application with administrator privileges\n"
+                "3. Check if any other application is intercepting keyboard shortcuts"
+            )
+        
+        messagebox.showinfo("Global Hotkey Help", message)
 
 def main():
+    # Check for macOS and display a message about limitations
+    if MACOS:
+        print("Running on macOS. Note that global hotkeys are disabled for compatibility.")
+        print("Please use the buttons in the application interface instead.")
+    
     # Check for required modules
     missing_modules = []
     
     try:
+        import tkinter as tk
+        from tkinter import messagebox
+    except ImportError:
+        missing_modules.append("tkinter")
+    
+    # Safely try to import pyautogui which is essential
+    try:
         import pyautogui
     except ImportError:
         missing_modules.append("pyautogui")
-        
-    try:
-        import keyboard
-    except ImportError:
-        missing_modules.append("keyboard")
     
+    # Import keyboard only on non-macOS platforms
+    if not MACOS:
+        try:
+            import keyboard
+        except ImportError:
+            missing_modules.append("keyboard")
+    
+    # Try to import PIL for image handling
     try:
         from PIL import Image, ImageDraw
-        import pystray
     except ImportError:
         missing_modules.append("pillow")
-        
+    
+    # Try to import pystray for system tray support (optional)
+    if not MACOS:  # Skip on macOS
+        try:
+            import pystray
+        except ImportError:
+            print("Pystray module not available, system tray functionality will be disabled")
+    
     if missing_modules:
         print(f"Missing required modules: {', '.join(missing_modules)}")
         print("Please install them using pip:")
