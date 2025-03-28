@@ -176,6 +176,14 @@ class SimpleTyper(QMainWindow):
         # Button layout
         button_layout = QHBoxLayout()
 
+        # Status label
+        self.status_label = QLabel("Ready")
+        self.status_label.setStyleSheet(
+            "background-color: #e0e0e0; padding: 5px; border-radius: 3px;"
+        )
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        button_layout.addWidget(self.status_label)
+
         # Emergency Stop button
         self.emergency_button = QPushButton("EMERGENCY STOP")
         self.emergency_button.clicked.connect(self.emergency_stop)
@@ -303,7 +311,7 @@ class SimpleTyper(QMainWindow):
         self.typing_thread.daemon = True
 
         # Update UI
-        self.status_label = QLabel("Typing")
+        self.status_label.setText("Typing")
         self.status_label.setStyleSheet(
             "background-color: #fff3cd; padding: 5px; border-radius: 3px;"
         )
