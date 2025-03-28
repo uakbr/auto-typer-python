@@ -104,9 +104,7 @@ class SimpleTyper(QMainWindow):
 
         # Basic settings
         self.delay = 0.1
-        self.natural_typing = True
-        self.repeat_count = 1
-
+        
         # Create UI
         self.init_ui()
 
@@ -159,27 +157,6 @@ class SimpleTyper(QMainWindow):
         # Options layout
         options_layout = QHBoxLayout()
 
-        # Repeat count
-        repeat_layout = QHBoxLayout()
-        repeat_layout.addWidget(QLabel("Repeat:"))
-
-        self.repeat_spinbox = QSpinBox()
-        self.repeat_spinbox.setMinimum(1)
-        self.repeat_spinbox.setMaximum(10)
-        self.repeat_spinbox.setValue(self.repeat_count)
-        self.repeat_spinbox.valueChanged.connect(self.update_repeat)
-        repeat_layout.addWidget(self.repeat_spinbox)
-
-        options_layout.addLayout(repeat_layout)
-
-        # Natural typing checkbox
-        self.natural_typing_checkbox = QCheckBox("Natural Typing")
-        self.natural_typing_checkbox.setChecked(self.natural_typing)
-        self.natural_typing_checkbox.stateChanged.connect(
-            self.update_natural_typing
-        )
-        options_layout.addWidget(self.natural_typing_checkbox)
-
         # Emergency stop timer
         emergency_layout = QHBoxLayout()
         emergency_layout.addWidget(QLabel("Auto-stop after (seconds):"))
@@ -199,13 +176,13 @@ class SimpleTyper(QMainWindow):
         # Button layout
         button_layout = QHBoxLayout()
 
-        # Status label
-        self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet(
-            "background-color: #e0e0e0; padding: 5px; border-radius: 3px;"
+        # Emergency Stop button
+        self.emergency_button = QPushButton("EMERGENCY STOP")
+        self.emergency_button.clicked.connect(self.emergency_stop)
+        self.emergency_button.setStyleSheet(
+            "background-color: #dc3545; color: white;"
         )
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        button_layout.addWidget(self.status_label)
+        button_layout.addWidget(self.emergency_button)
 
         # Start button
         self.start_button = QPushButton("Start Typing")
@@ -275,14 +252,6 @@ class SimpleTyper(QMainWindow):
         self.delay = self.speed_slider.value() / 100.0
         self.speed_label.setText(f"{self.delay:.2f}s")
 
-    def update_repeat(self):
-        """Update repeat count"""
-        self.repeat_count = self.repeat_spinbox.value()
-
-    def update_natural_typing(self):
-        """Update natural typing setting"""
-        self.natural_typing = self.natural_typing_checkbox.isChecked()
-
     def update_emergency_time(self):
         """Update emergency stop timer value"""
         self.emergency_time = self.emergency_spinbox.value()
@@ -334,7 +303,7 @@ class SimpleTyper(QMainWindow):
         self.typing_thread.daemon = True
 
         # Update UI
-        self.status_label.setText("Typing")
+        self.status_label = QLabel("Typing")
         self.status_label.setStyleSheet(
             "background-color: #fff3cd; padding: 5px; border-radius: 3px;"
         )
@@ -354,93 +323,62 @@ class SimpleTyper(QMainWindow):
         """The actual typing process in a separate thread"""
         try:
             # Calculate total characters to type
-            total_chars = len(text) * self.repeat_count
+            total_chars = len(text)
             typed_chars = 0
 
-            # Type the text the specified number of times
-            for repeat in range(self.repeat_count):
-                if not self.typing_active:
-                    break
-
-                # For macOS, we'll use AppleScript for all characters
-                if IS_MACOS:
-                    for char in text:
-                        if not self.typing_active:
-                            break
-                            
-                        # Type character using AppleScript
-                        type_with_applescript(char)
+            # For macOS, we'll use AppleScript for all characters
+            if IS_MACOS:
+                for char in text:
+                    if not self.typing_active:
+                        break
                         
-                        # Update progress
-                        typed_chars += 1
-                        progress = int((typed_chars / total_chars) * 100)
-                        self.progress_signal.emit(progress)
-                        
-                        # Add appropriate delay based on character
-                        if self.natural_typing:
-                            if char in ['.', ',', '!', '?', ';', ':']:
-                                # Longer pause after punctuation
-                                time.sleep(self.delay * 2)
-                            elif char in [' ', '\n', '\t']:
-                                # Pause after spaces or line breaks
-                                time.sleep(self.delay * 1.5)
-                            else:
-                                # Normal typing with variability
-                                variation = random.uniform(
-                                    -self.delay*0.3, self.delay*0.3
-                                )
-                                time.sleep(self.delay + variation)
-                        else:
-                            # Fixed delay
-                            time.sleep(self.delay)
-                else:
-                    # For non-macOS, use pyautogui as before
-                    for char in text:
-                        if not self.typing_active:
-                            break
+                    # Type character using AppleScript
+                    type_with_applescript(char)
+                    
+                    # Update progress
+                    typed_chars += 1
+                    progress = int((typed_chars / total_chars) * 100)
+                    self.progress_signal.emit(progress)
+                    
+                    # Basic delay between characters
+                    # Slightly longer pause for certain characters
+                    if char in ['.', ',', '!', '?', ';', ':', ' ', '\n', '\t']:
+                        time.sleep(self.delay * 1.5)
+                    else:
+                        time.sleep(self.delay)
+            else:
+                # For non-macOS, use pyautogui as before
+                for char in text:
+                    if not self.typing_active:
+                        break
 
-                        # Try multiple approaches for special characters
-                        if char in MAC_SPECIAL_CHARS:
+                    # Try multiple approaches for special characters
+                    if char in MAC_SPECIAL_CHARS:
+                        try:
+                            # First try: use direct key press
+                            pyautogui.press(MAC_SPECIAL_CHARS[char])
+                        except Exception:
                             try:
-                                # First try: use direct key press
-                                pyautogui.press(MAC_SPECIAL_CHARS[char])
-                            except Exception:
-                                try:
-                                    # Second try: use clipboard method
-                                    original_clipboard = pyperclip.paste()
-                                    pyperclip.copy(char)
-                                    pyautogui.hotkey('command', 'v')
-                                    time.sleep(0.1)
-                                    pyperclip.copy(original_clipboard)
-                                except:
-                                    # Last resort: try to write directly
-                                    pyautogui.write(char)
-                        else:
-                            # Type regular character
-                            pyautogui.write(char)
+                                # Second try: use clipboard method
+                                original_clipboard = pyperclip.paste()
+                                pyperclip.copy(char)
+                                pyautogui.hotkey('command', 'v')
+                                time.sleep(0.1)
+                                pyperclip.copy(original_clipboard)
+                            except:
+                                # Last resort: try to write directly
+                                pyautogui.write(char)
+                    else:
+                        # Type regular character
+                        pyautogui.write(char)
 
-                        # Update progress
-                        typed_chars += 1
-                        progress = int((typed_chars / total_chars) * 100)
-                        self.progress_signal.emit(progress)
+                    # Update progress
+                    typed_chars += 1
+                    progress = int((typed_chars / total_chars) * 100)
+                    self.progress_signal.emit(progress)
 
-                        # Add delay with natural variability if enabled
-                        if self.natural_typing:
-                            if char in ['.', ',', '!', '?', ';', ':']:
-                                # Longer pause after punctuation
-                                time.sleep(self.delay * 2)
-                            elif char in [' ', '\n', '\t']:
-                                # Pause after spaces or line breaks
-                                time.sleep(self.delay * 1.5)
-                            else:
-                                # Normal typing with variability
-                                variation = random.uniform(
-                                    -self.delay*0.3, self.delay*0.3
-                                )
-                                time.sleep(self.delay + variation)
-                        else:
-                            # Fixed delay
-                            time.sleep(self.delay)
+                    # Basic delay between characters
+                    time.sleep(self.delay)
 
             # Typing completed
             if self.typing_active:
