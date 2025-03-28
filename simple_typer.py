@@ -4,6 +4,9 @@ import time
 import random
 import threading
 import pyautogui
+import pyperclip
+import subprocess
+import platform
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QSlider, QSpinBox, QCheckBox,
@@ -11,32 +14,49 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
-# Dictionary of special characters that need special handling
-# Some characters need to be pressed with shift key
-SPECIAL_CHARS = {
-    '#': ('shift', '3'),
-    '!': ('shift', '1'),
-    '@': ('shift', '2'),
-    '$': ('shift', '4'),
-    '%': ('shift', '5'),
-    '^': ('shift', '6'),
-    '&': ('shift', '7'),
-    '*': ('shift', '8'),
-    '(': ('shift', '9'),
-    ')': ('shift', '0'),
-    '_': ('shift', '-'),
-    '+': ('shift', '='),
-    '{': ('shift', '['),
-    '}': ('shift', ']'),
-    '|': ('shift', '\\'),
-    ':': ('shift', ';'),
-    '"': ('shift', "'"),
-    '<': ('shift', ','),
-    '>': ('shift', '.'),
-    '?': ('shift', '/'),
-    '~': ('shift', '`')
+# Check if we're on macOS
+IS_MACOS = platform.system() == 'Darwin'
+
+# For Mac, we'll use multiple methods to type special characters
+MAC_SPECIAL_CHARS = {
+    '#': 'numbersign',
+    '!': 'exclam',
+    '@': 'at',
+    '$': 'dollar',
+    '%': 'percent',
+    '^': 'asciicircum',
+    '&': 'ampersand',
+    '*': 'asterisk',
+    '(': 'parenleft',
+    ')': 'parenright',
+    '_': 'underscore',
+    '+': 'plus',
+    '{': 'braceleft',
+    '}': 'braceright',
+    '|': 'bar',
+    ':': 'colon',
+    '"': 'quotedbl',
+    '<': 'less',
+    '>': 'greater',
+    '?': 'question',
+    '~': 'asciitilde',
+    '`': 'grave'
 }
 
+def type_with_applescript(text):
+    """Use AppleScript to type text (macOS only)"""
+    # Escape double quotes in the text for use in AppleScript
+    escaped_text = text.replace('"', '\\"')
+    
+    # Create AppleScript command to type the text
+    apple_script = f'''
+    tell application "System Events"
+        keystroke "{escaped_text}"
+    end tell
+    '''
+    
+    # Run the AppleScript command
+    subprocess.run(['osascript', '-e', apple_script], check=False)
 
 class SimpleTyper(QMainWindow):
     """Simplified Auto Typer with emergency stop feature"""
@@ -316,46 +336,75 @@ class SimpleTyper(QMainWindow):
                 if not self.typing_active:
                     break
 
-                # Type each character
-                for char in text:
-                    if not self.typing_active:
-                        break
+                # For macOS, we'll type in small chunks using AppleScript
+                if IS_MACOS:
+                    # Break text into chunks (to avoid AppleScript limitations)
+                    chunk_size = 20  # Type 20 characters at a time
+                    for i in range(0, len(text), chunk_size):
+                        if not self.typing_active:
+                            break
+                            
+                        # Get the next chunk of text
+                        chunk = text[i:i+chunk_size]
+                        
+                        # Type it using AppleScript
+                        type_with_applescript(chunk)
+                        
+                        # Update progress for the entire chunk
+                        typed_chars += len(chunk)
+                        progress = int((typed_chars / total_chars) * 100)
+                        self.progress_signal.emit(progress)
+                        
+                        # Add a delay between chunks
+                        time.sleep(self.delay * 5)  # Longer delay between chunks
+                else:
+                    # Type each character individually
+                    for char in text:
+                        if not self.typing_active:
+                            break
 
-                    # Handle special characters differently
-                    if char in SPECIAL_CHARS:
-                        keys = SPECIAL_CHARS[char]
-                        if len(keys) == 2:
-                            # For characters that need shift key
-                            pyautogui.hotkey(keys[0], keys[1])
+                        # Try multiple approaches for special characters
+                        if char in MAC_SPECIAL_CHARS:
+                            try:
+                                # First try: use direct key press
+                                pyautogui.press(MAC_SPECIAL_CHARS[char])
+                            except Exception:
+                                try:
+                                    # Second try: use clipboard method
+                                    original_clipboard = pyperclip.paste()
+                                    pyperclip.copy(char)
+                                    pyautogui.hotkey('command', 'v')
+                                    time.sleep(0.1)
+                                    pyperclip.copy(original_clipboard)
+                                except:
+                                    # Last resort: try to write directly
+                                    pyautogui.write(char)
                         else:
-                            # For other special characters
-                            pyautogui.press(keys[0])
-                    else:
-                        # Type normal character
-                        pyautogui.write(char)
+                            # Type regular character
+                            pyautogui.write(char)
 
-                    # Update progress
-                    typed_chars += 1
-                    progress = int((typed_chars / total_chars) * 100)
-                    self.progress_signal.emit(progress)
+                        # Update progress
+                        typed_chars += 1
+                        progress = int((typed_chars / total_chars) * 100)
+                        self.progress_signal.emit(progress)
 
-                    # Add delay with natural variability if enabled
-                    if self.natural_typing:
-                        if char in ['.', ',', '!', '?', ';', ':']:
-                            # Longer pause after punctuation
-                            time.sleep(self.delay * 2)
-                        elif char in [' ', '\n', '\t']:
-                            # Pause after spaces or line breaks
-                            time.sleep(self.delay * 1.5)
+                        # Add delay with natural variability if enabled
+                        if self.natural_typing:
+                            if char in ['.', ',', '!', '?', ';', ':']:
+                                # Longer pause after punctuation
+                                time.sleep(self.delay * 2)
+                            elif char in [' ', '\n', '\t']:
+                                # Pause after spaces or line breaks
+                                time.sleep(self.delay * 1.5)
+                            else:
+                                # Normal typing with variability
+                                variation = random.uniform(
+                                    -self.delay*0.3, self.delay*0.3
+                                )
+                                time.sleep(self.delay + variation)
                         else:
-                            # Normal typing with variability
-                            variation = random.uniform(
-                                -self.delay*0.3, self.delay*0.3
-                            )
-                            time.sleep(self.delay + variation)
-                    else:
-                        # Fixed delay
-                        time.sleep(self.delay)
+                            # Fixed delay
+                            time.sleep(self.delay)
 
             # Typing completed
             if self.typing_active:
