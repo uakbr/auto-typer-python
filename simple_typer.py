@@ -45,18 +45,44 @@ MAC_SPECIAL_CHARS = {
 
 def type_with_applescript(text):
     """Use AppleScript to type text (macOS only)"""
-    # Escape double quotes in the text for use in AppleScript
-    escaped_text = text.replace('"', '\\"')
-    
-    # Create AppleScript command to type the text
-    apple_script = f'''
-    tell application "System Events"
-        keystroke "{escaped_text}"
-    end tell
-    '''
-    
-    # Run the AppleScript command
-    subprocess.run(['osascript', '-e', apple_script], check=False)
+    for char in text:
+        # Handle special characters including whitespace
+        if char == '\n':
+            # Type return/enter key for newlines
+            apple_script = '''
+            tell application "System Events"
+                key code 36  # Return key
+            end tell
+            '''
+        elif char == ' ':
+            # Type space
+            apple_script = '''
+            tell application "System Events"
+                key code 49  # Space key
+            end tell
+            '''
+        elif char == '\t':
+            # Type tab
+            apple_script = '''
+            tell application "System Events"
+                key code 48  # Tab key
+            end tell
+            '''
+        else:
+            # Escape double quotes for AppleScript
+            escaped_char = char.replace('"', '\\"')
+            # Type regular character
+            apple_script = f'''
+            tell application "System Events"
+                keystroke "{escaped_char}"
+            end tell
+            '''
+        
+        # Run the AppleScript command
+        subprocess.run(['osascript', '-e', apple_script], check=False)
+        
+        # Small delay after each character to ensure proper typing
+        time.sleep(0.01)
 
 class SimpleTyper(QMainWindow):
     """Simplified Auto Typer with emergency stop feature"""
@@ -336,29 +362,39 @@ class SimpleTyper(QMainWindow):
                 if not self.typing_active:
                     break
 
-                # For macOS, we'll type in small chunks using AppleScript
+                # For macOS, we'll use AppleScript for all characters
                 if IS_MACOS:
-                    # Break text into chunks (to avoid AppleScript limitations)
-                    chunk_size = 20  # Type 20 characters at a time
-                    for i in range(0, len(text), chunk_size):
+                    for char in text:
                         if not self.typing_active:
                             break
                             
-                        # Get the next chunk of text
-                        chunk = text[i:i+chunk_size]
+                        # Type character using AppleScript
+                        type_with_applescript(char)
                         
-                        # Type it using AppleScript
-                        type_with_applescript(chunk)
-                        
-                        # Update progress for the entire chunk
-                        typed_chars += len(chunk)
+                        # Update progress
+                        typed_chars += 1
                         progress = int((typed_chars / total_chars) * 100)
                         self.progress_signal.emit(progress)
                         
-                        # Add a delay between chunks
-                        time.sleep(self.delay * 5)  # Longer delay between chunks
+                        # Add appropriate delay based on character
+                        if self.natural_typing:
+                            if char in ['.', ',', '!', '?', ';', ':']:
+                                # Longer pause after punctuation
+                                time.sleep(self.delay * 2)
+                            elif char in [' ', '\n', '\t']:
+                                # Pause after spaces or line breaks
+                                time.sleep(self.delay * 1.5)
+                            else:
+                                # Normal typing with variability
+                                variation = random.uniform(
+                                    -self.delay*0.3, self.delay*0.3
+                                )
+                                time.sleep(self.delay + variation)
+                        else:
+                            # Fixed delay
+                            time.sleep(self.delay)
                 else:
-                    # Type each character individually
+                    # For non-macOS, use pyautogui as before
                     for char in text:
                         if not self.typing_active:
                             break
