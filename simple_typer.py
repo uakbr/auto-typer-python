@@ -11,6 +11,32 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 
+# Dictionary of special characters that need special handling
+# Some characters need to be pressed with shift key
+SPECIAL_CHARS = {
+    '#': ('shift', '3'),
+    '!': ('shift', '1'),
+    '@': ('shift', '2'),
+    '$': ('shift', '4'),
+    '%': ('shift', '5'),
+    '^': ('shift', '6'),
+    '&': ('shift', '7'),
+    '*': ('shift', '8'),
+    '(': ('shift', '9'),
+    ')': ('shift', '0'),
+    '_': ('shift', '-'),
+    '+': ('shift', '='),
+    '{': ('shift', '['),
+    '}': ('shift', ']'),
+    '|': ('shift', '\\'),
+    ':': ('shift', ';'),
+    '"': ('shift', "'"),
+    '<': ('shift', ','),
+    '>': ('shift', '.'),
+    '?': ('shift', '/'),
+    '~': ('shift', '`')
+}
+
 
 class SimpleTyper(QMainWindow):
     """Simplified Auto Typer with emergency stop feature"""
@@ -295,8 +321,18 @@ class SimpleTyper(QMainWindow):
                     if not self.typing_active:
                         break
 
-                    # Type the character
-                    pyautogui.write(char)
+                    # Handle special characters differently
+                    if char in SPECIAL_CHARS:
+                        keys = SPECIAL_CHARS[char]
+                        if len(keys) == 2:
+                            # For characters that need shift key
+                            pyautogui.hotkey(keys[0], keys[1])
+                        else:
+                            # For other special characters
+                            pyautogui.press(keys[0])
+                    else:
+                        # Type normal character
+                        pyautogui.write(char)
 
                     # Update progress
                     typed_chars += 1
